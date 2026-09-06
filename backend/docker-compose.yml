@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: livestockos_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: livestock
+      POSTGRES_PASSWORD: livestock_password
+      POSTGRES_DB: livestockos
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U livestock -d livestockos"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: livestockos_api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://livestock:livestock_password@postgres:5432/livestockos
+      JWT_SECRET_KEY: docker-production-secret-key-at-least-32-chars-long
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 60
+      REFRESH_TOKEN_EXPIRE_DAYS: 7
+      CORS_ORIGINS: '["*"]'
+      PROJECT_NAME: "LivestockOS Backend API"
+      DEBUG: "False"
+    ports:
+      - "8000:8000"
+    command: >
+      sh -c "alembic upgrade head &&
+             python seed.py &&
+             gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker -b 0.0.0.0:8000"
+
+volumes:
+  postgres_data:
